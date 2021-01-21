@@ -1,21 +1,25 @@
 import multiprocessing as mp
-import os
 import time
 from typing import Dict
 from typing import NoReturn
 
 import requests
 import ujson as json
-from artemis_utils import DB_HOST
-from artemis_utils import DB_NAME
-from artemis_utils import DB_PASS
-from artemis_utils import DB_PORT
-from artemis_utils import DB_USER
 from artemis_utils import get_logger
-from artemis_utils import RABBITMQ_URI
-from artemis_utils.db_util import DB
-from artemis_utils.rabbitmq_util import create_exchange
-from artemis_utils.rabbitmq_util import create_queue
+from artemis_utils.constants import CONFIGURATION_HOST
+from artemis_utils.constants import DATABASE_HOST
+from artemis_utils.constants import PREFIXTREE_HOST
+from artemis_utils.db import DB
+from artemis_utils.envvars import DB_HOST
+from artemis_utils.envvars import DB_NAME
+from artemis_utils.envvars import DB_PASS
+from artemis_utils.envvars import DB_PORT
+from artemis_utils.envvars import DB_USER
+from artemis_utils.envvars import RABBITMQ_URI
+from artemis_utils.envvars import REST_PORT
+from artemis_utils.rabbitmq import create_exchange
+from artemis_utils.rabbitmq import create_queue
+from artemis_utils.service import wait_data_worker_dependencies
 from kombu import Connection
 from kombu import Producer
 from kombu import uuid
@@ -34,49 +38,12 @@ shared_memory_locks = {
     "ongoing_hijacks": mp.Lock(),
     "config_timestamp": mp.Lock(),
     "time": mp.Lock(),
+    "service_reconfiguring": mp.Lock(),
 }
 
 # global vars
 SERVICE_NAME = "autoignore"
-CONFIGURATION_HOST = "configuration"
-PREFIXTREE_HOST = "prefixtree"
-DATABASE_HOST = "database"
 DATA_WORKER_DEPENDENCIES = [PREFIXTREE_HOST, DATABASE_HOST]
-REST_PORT = int(os.getenv("REST_PORT", 3000))
-# need to move to utils
-HEALTH_CHECK_TIMEOUT = 5
-
-
-# need to move this to utils
-def wait_data_worker_dependencies(data_worker_dependencies):
-    while True:
-        met_deps = set()
-        unmet_deps = set()
-        for service in data_worker_dependencies:
-            try:
-                r = requests.get(
-                    "http://{}:{}/health".format(service, REST_PORT),
-                    timeout=HEALTH_CHECK_TIMEOUT,
-                )
-                status = True if r.json()["status"] == "running" else False
-                if not status:
-                    unmet_deps.add(service)
-                else:
-                    met_deps.add(service)
-            except Exception:
-                unmet_deps.add(service)
-        if len(unmet_deps) == 0:
-            log.info(
-                "all needed data workers started: {}".format(data_worker_dependencies)
-            )
-            break
-        else:
-            log.info(
-                "'{}' data workers started, waiting for: '{}'".format(
-                    met_deps, unmet_deps
-                )
-            )
-        time.sleep(1)
 
 
 def configure_autoignore(msg, shared_memory_manager_dict):
@@ -85,6 +52,9 @@ def configure_autoignore(msg, shared_memory_manager_dict):
         # check newer config
         config_timestamp = shared_memory_manager_dict["config_timestamp"]
         if config["timestamp"] > config_timestamp:
+            shared_memory_locks["service_reconfiguring"].acquire()
+            shared_memory_manager_dict["service_reconfiguring"] = True
+            shared_memory_locks["service_reconfiguring"].release()
 
             # extract autoignore rules
             autoignore_rules = config.get("autoignore", {})
@@ -104,10 +74,16 @@ def configure_autoignore(msg, shared_memory_manager_dict):
             shared_memory_manager_dict["time"] = 0
             shared_memory_locks["time"].release()
 
+        shared_memory_locks["service_reconfiguring"].acquire()
+        shared_memory_manager_dict["service_reconfiguring"] = False
+        shared_memory_locks["service_reconfiguring"].release()
         return {"success": True, "message": "configured"}
     except Exception:
         log.exception("exception")
-        return {"success": False, "message": "error during data worker configuration"}
+        shared_memory_locks["service_reconfiguring"].acquire()
+        shared_memory_manager_dict["service_reconfiguring"] = False
+        shared_memory_locks["service_reconfiguring"].release()
+        return {"success": False, "message": "error during service configuration"}
 
 
 class ConfigHandler(RequestHandler):
@@ -149,7 +125,7 @@ class ConfigHandler(RequestHandler):
             self.write(configure_autoignore(msg, self.shared_memory_manager_dict))
         except Exception:
             self.write(
-                {"success": False, "message": "error during data worker configuration"}
+                {"success": False, "message": "error during service configuration"}
             )
 
 
@@ -164,13 +140,15 @@ class HealthHandler(RequestHandler):
     def get(self):
         """
         Extract the status of a service via a GET request.
-        :return: {"status" : <unconfigured|running|stopped>}
+        :return: {"status" : <unconfigured|running|stopped><,reconfiguring>}
         """
         status = "stopped"
         shared_memory_locks["data_worker"].acquire()
         if self.shared_memory_manager_dict["data_worker_running"]:
             status = "running"
         shared_memory_locks["data_worker"].release()
+        if self.shared_memory_manager_dict["service_reconfiguring"]:
+            status += ",reconfiguring"
         self.write({"status": status})
 
 
@@ -267,6 +245,7 @@ class Autoignore:
         shared_memory_manager = mp.Manager()
         self.shared_memory_manager_dict = shared_memory_manager.dict()
         self.shared_memory_manager_dict["data_worker_running"] = False
+        self.shared_memory_manager_dict["service_reconfiguring"] = False
         self.shared_memory_manager_dict["autoignore_rules"] = {}
         self.shared_memory_manager_dict["config_timestamp"] = -1
         self.shared_memory_manager_dict["time"] = 0

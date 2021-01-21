@@ -1,11 +1,12 @@
 import difflib
 import multiprocessing as mp
-import os
 import time
 
 import requests
 import ujson as json
 from artemis_utils import get_logger
+from artemis_utils.constants import CONFIGURATION_HOST
+from artemis_utils.envvars import REST_PORT
 from tornado.ioloop import IOLoop
 from tornado.web import Application
 from tornado.web import RequestHandler
@@ -19,10 +20,7 @@ log = get_logger()
 shared_memory_locks = {"data_worker": mp.Lock()}
 
 # global vars
-COMPOSE_PROJECT_NAME = os.getenv("COMPOSE_PROJECT_NAME", "artemis")
 SERVICE_NAME = "fileobserver"
-CONFIGURATION_HOST = "configuration"
-REST_PORT = int(os.getenv("REST_PORT", 3000))
 
 
 class ConfigHandler(RequestHandler):
@@ -69,13 +67,15 @@ class HealthHandler(RequestHandler):
     def get(self):
         """
         Extract the status of a service via a GET request.
-        :return: {"status" : <unconfigured|running|stopped>}
+        :return: {"status" : <unconfigured|running|stopped><,reconfiguring>}
         """
         status = "stopped"
         shared_memory_locks["data_worker"].acquire()
         if self.shared_memory_manager_dict["data_worker_running"]:
             status = "running"
         shared_memory_locks["data_worker"].release()
+        if self.shared_memory_manager_dict["service_reconfiguring"]:
+            status += ",reconfiguring"
         self.write({"status": status})
 
 
@@ -172,6 +172,7 @@ class FileObserver:
         shared_memory_manager = mp.Manager()
         self.shared_memory_manager_dict = shared_memory_manager.dict()
         self.shared_memory_manager_dict["data_worker_running"] = False
+        self.shared_memory_manager_dict["service_reconfiguring"] = False
         self.shared_memory_manager_dict["dirname"] = "/etc/artemis"
         self.shared_memory_manager_dict["filename"] = "config.yaml"
 

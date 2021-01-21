@@ -355,6 +355,7 @@ services:
         networks:
             - artemis
         environment:
+            ARTEMIS_WEB_HOST: ${ARTEMIS_WEB_HOST}
             HIJACK_LOG_FILTER: ${HIJACK_LOG_FILTER}
             HIJACK_LOG_FIELDS: ${HIJACK_LOG_FIELDS}
             RABBITMQ_USER: ${RABBITMQ_USER}
@@ -401,6 +402,7 @@ services:
             - ${REDIS_PORT}
         volumes:
             - ./backend-services/redis/configs/redis.conf:/usr/local/etc/redis/redis.conf
+        command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     rabbitmq:
         image: rabbitmq:3.8.3-management-alpine
         container_name: rabbitmq
