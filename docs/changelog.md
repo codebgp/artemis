@@ -5,13 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [UNRELEASED] (latest) - YYYY-MM-DD
+## [UNRELEASED/master] (latest) - YYYY-MM-DD
+### Added
+- "json" encoding accepted for messages coming from frontend (ignore/resolve/seen/delete/(un-)mitigate)
+
+### Changed
+- changes in "dataplane_msms" table and "view_dataplane_msms" view, in order to support the new design of the "dataplane_view" module.
+- upgraded artemis-utils to 1.0.10 to include the slacker-log-handler==1.7.1 dep
+- migrating from travis to GH actions
+- downgraded to six==1.11.0 to achieve compatibility
+- changed tap invalid format logging level to debug (instead of warning)
+- updated artemis-utils to 1.0.11
+
+### Fixed
+- autoconfiguration subprefix bug in prefixtree plus new autoconf tests
+- vagrant docker-compose.yaml file fix (sync with master)
+- session timeout behavior
+
+### Removed
+- TBD (removed a feature)
+
+### Deprecated
+- TBD (soon-to-be removed feature)
+
+### Security
+- updated PyYAML to 5.4 (fixing sec vulnerabilitiy)
+
+## [2.0.0] (Boreas) - 2021-01-26
 ### Added
 - Action and necessary logic to un-mitigate a hijack
 - Ability to reload targeted services based on what conf section changed
 - GET config endpoints to backend and monitor services
+- Makefile for local commands (dev/ci)
+- Added healthchecks to docker-compose (docker-compose version bumped to 3.4)
 - Service reconfiguring flag and status
 - Redis no-data-received key expiry logic (default: 60 seconds)
+- Hijack detail JSON export
 
 ### Changed
 - Decoupled microservice architecture for backend and frontend

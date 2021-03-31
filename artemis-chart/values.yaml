@@ -21,7 +21,7 @@ risId: 8522
 # database
 dbHost: postgres
 dbPort: 5432
-dbVersion: 23
+dbVersion: 24
 dbName: artemis_db
 dbUser: artemis_user
 dbPass: Art3m1s
@@ -140,7 +140,7 @@ services:
     ports:
     - 3000
   frontend:
-    image: inspiregroup/artemis-tempfrontend
+    image: inspiregroup/artemis-frontend
     replicas: 1
     ports:
       - 8000
